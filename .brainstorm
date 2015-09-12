@@ -1,0 +1,15 @@
+## Brainstorming for ElMUD
+## September 12, 2015 A.D.
+
+fix error handling so it crashes fast
+add room and player identifiers stored in a process
+add rooms with verbs 
+add player process generator off of login
+add logout feature to logout players
+
+figure out how to run elixir code safe from untrusted sources
+  then add the ability of players to learn to code in elixir 
+
+should just admins be able to add rooms or regular players
+add basic administrative abilities
+add passwords to login 
