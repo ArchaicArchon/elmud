@@ -6,6 +6,12 @@ defmodule ChatServer do
 
 def debug do true end
 
+defmodule Object do
+
+defstruct name: "Noname", title: "Notitle", description: "This object does not have a description", identifier: {:item, 0}, location: {:room, 0}, inventory: [], equipment: %{}, internal_verbs: [], external_verbs: [], internal_inventory_verbs: [], external_inventory_verbs: [], internal_equipment_verbs: [], external_equipment_verbs: []
+
+end
+
 defp douts(string) do
   if debug do IO.puts(string) end
 end
