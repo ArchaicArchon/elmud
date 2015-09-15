@@ -69,6 +69,7 @@ defp sweeper(statePid) do
         send(statePid,{:remove,socket})
         end end)
   end
+  :timer.sleep(1000) ## sleep the sweeper for 1 second, is this too long?, to cut down on cpu cycles
   sweeper(statePid)
 end
 
