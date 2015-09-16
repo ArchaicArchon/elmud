@@ -106,16 +106,26 @@ end
 
 defp start_loop(socket,statePid,broadcastPid,key_value_store_pid) do
   write_line("Welcome to Elixir Chat!\n",socket)
-  write_line("Enter your User name:\n",socket)
   name = login(socket)
   send(statePid,{:insert,{socket,{self(),name}}})
   loop_server(socket,broadcastPid,key_value_store_pid)
 end
 
 defp login(socket) do
-  line = read_line(socket)
-  write_line("Welcome #{line}",socket)
-  line
+  write_line("Enter your User name: ",socket)
+  line = String.rstrip(read_line(socket))
+  case check_username(line) do
+    true -> 
+      write_line("Welcome #{line}\n",socket)
+      line
+    false ->
+      write_line("Invalid Username!\n",socket)
+      login(socket)
+  end
+end
+
+defp check_username(name) do
+  Regex.match?(~r/^[a-zA-Z]+$/,name)
 end
 
 defp loop_server(socket,broadcastPid,key_value_store_pid) do
