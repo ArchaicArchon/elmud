@@ -26,6 +26,10 @@ def fst({item,_}) do item end
 def snd({_,item}) do item end
 
 def start(port) do
+  password_map = read_passwords_file ".passwords"
+  douts "Password file succesfully read!"
+  password_server_id = spawn(fn -> password_server(password_map) end)
+  douts "Password_server successfully started!"
   {:ok,socket} = :gen_tcp.listen(port,
     [:binary,
        packet: :line, active: false,
@@ -37,7 +41,7 @@ def start(port) do
   broadcastPid = spawn(fn -> broadcast(statePid) end)
   key_value_store_pid = spawn(fn -> key_value_store(keys_and_values) end)
   IO.puts "Accepting connections on port #{inspect port}"
-  loop_acceptor(socket,statePid,broadcastPid,key_value_store_pid)
+  loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_store_pid)
 end
 
 defp key_value_store(keys_and_values) do
@@ -97,35 +101,88 @@ defp broadcast(statePid) do
   broadcast(statePid)
 end
 
-defp loop_acceptor(socket,statePid,broadcastPid,key_value_store_pid) do
-  {:ok,client_socket} = :gen_tcp.accept(socket) ### could error here!
-  spawn(fn -> 
-    start_loop(client_socket,statePid,broadcastPid,key_value_store_pid) end)
-  loop_acceptor(socket,statePid,broadcastPid,key_value_store_pid)
+defp password_server(password_map) do
+  receive do
+    {:check_this,{caller,username,password}} ->
+      douts("password_server received a :check from: #{inspect caller} username: #{inspect username} password: #{inspect password}")
+      douts("looking up password....")
+      douts("our password map: #{inspect password_map}")
+      looked_up_password = password_map[username]
+      douts("the looked up pasword is: #{inspect looked_up_password}")
+      return_value = password == password_map[username]
+      douts("PASSWORD SERVER IS STILL ALIVE!!!!!")
+      douts("Passwords match: #{inspect return_value}")
+      send(caller,{:password_is,return_value})
+      douts("password_server sent data back to caller!")
+    anything_else ->
+      douts("password_server received: #{inspect anything_else}")
+  end
+  password_server(password_map)
 end
 
-defp start_loop(socket,statePid,broadcastPid,key_value_store_pid) do
+defp loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
+  {:ok,client_socket} = :gen_tcp.accept(socket) ### could error here!
+  spawn(fn -> 
+    start_loop(client_socket,password_server_id,statePid,broadcastPid,key_value_store_pid) end)
+  loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_store_pid)
+end
+
+defp start_loop(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
   write_line("Welcome to Elixir Chat!\n",socket)
-  name = login(socket)
+  name = login(socket,password_server_id)
   send(statePid,{:insert,{socket,{self(),name}}})
   loop_server(socket,broadcastPid,key_value_store_pid)
 end
 
-defp login(socket) do
+defp login(socket,password_server_id) do
   write_line("Enter your User name: ",socket)
-  line = String.rstrip(read_line(socket))
-  case check_username(line) do
-    true -> 
-      write_line("Welcome #{line}\n",socket)
-      line
+  username = String.rstrip(read_line(socket))
+  case check_username(username) do
+    true ->
+      write_line("Password: ",socket)
+      password = String.rstrip(read_line(socket))
+      douts("Sending username: #{inspect username} and password: #{inspect password}   to password server...")
+      send(password_server_id,{:check_this,{self(),username,password}})
+      douts("password sent to password server... Now waiting for a response")
+      receive do
+        {:password_is,true} -> 
+          write_line("Welcome #{username}\n",socket)
+          username
+        {:password_is,false} ->
+          write_line("Invalid Password!\nDisconnected......",socket)
+          File.close(socket)
+          Process.exit(self(),{:kill,"Invalid Password"})
+      end
     false ->
       write_line("Invalid Username!\n",socket)
-      login(socket)
+      login(socket,password_server_id)
   end
 end
 
 defp check_username(name) do
   Regex.match?(~r/^[a-zA-Z]+$/,name)
+end
+
+def read_passwords_file(file_name) do
+  file_contents_by_lines = String.split((String.rstrip(File.read!(file_name))),"\n")
+  douts("Passwords file contents: #{inspect file_contents_by_lines}")
+  password_map = contents_of_lines_to_map(file_contents_by_lines,%{})
+  douts "Our Passowrd Map is: #{inspect password_map}"
+  password_map
+end
+
+defp contents_of_lines_to_map([],map) do map end
+
+defp contents_of_lines_to_map([line|more_lines],map) do
+   douts("ok our current line being parsed is: #{inspect line}")
+   {k,v} = password_line_parse line
+   douts("ok our key value pair is: #{inspect {k,v}}")
+   contents_of_lines_to_map(more_lines,Map.put(map,k,v))
+end
+
+def password_line_parse(line) do
+  [k,v] = String.split(line,":")
+  {k,v}
 end
 
 defp loop_server(socket,broadcastPid,key_value_store_pid) do
@@ -141,8 +198,13 @@ defp loop_server(socket,broadcastPid,key_value_store_pid) do
           write_line("#{inspect value}\n",socket)
        end
     [?s,?e,?t,?\ |key_and_value] ->
-      [key,value|_] = String.split(to_string(key_and_value))
-      send(key_value_store_pid,{:set,{key,value}})
+      key_and_value_split = String.split(to_string(key_and_value))
+      case length(key_and_value_split) == 2 do
+        true -> 
+          [key,value] = key_and_value_split
+          send(key_value_store_pid,{:set,{key,value}})
+        false -> write_line("Invalid Key Value Pair\n",socket)
+      end
     _ -> write_line("I do not understand: #{line}",socket)
   end
   loop_server(socket,broadcastPid,key_value_store_pid)
