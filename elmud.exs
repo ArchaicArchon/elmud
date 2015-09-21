@@ -103,7 +103,10 @@ end
 
 defp password_server(password_map) do
   receive do
-    {:check_this,{caller,username,password}} ->
+    {:check_username,{caller,username}} ->
+      douts("password_server checking username: #{inspect username}#")
+      send(caller,{:username_is,(password_map[username] != nil)})
+    {:check_username_password,{caller,username,password}} ->
       douts("password_server received a :check from: #{inspect caller} username: #{inspect username} password: #{inspect password}")
       douts("looking up password....")
       douts("our password map: #{inspect password_map}")
@@ -139,19 +142,44 @@ defp login(socket,password_server_id) do
   username = String.rstrip(read_line(socket))
   case check_username(username) do
     true ->
-      write_line("Password: ",socket)
-      password = String.rstrip(read_line(socket))
-      douts("Sending username: #{inspect username} and password: #{inspect password}   to password server...")
-      send(password_server_id,{:check_this,{self(),username,password}})
-      douts("password sent to password server... Now waiting for a response")
-      receive do
-        {:password_is,true} -> 
-          write_line("Welcome #{username}\n",socket)
-          username
-        {:password_is,false} ->
-          write_line("Invalid Password!\nDisconnected......",socket)
-          File.close(socket)
-          Process.exit(self(),{:kill,"Invalid Password"})
+      case check_username_exists(username,password_server_id) do
+        true ->
+          write_line("Password: ",socket)
+          password = String.rstrip(read_line(socket))
+          douts("Sending username: #{inspect username} and password: #{inspect password}   to password server...")
+          send(password_server_id,{:check_username_password,{self(),username,password}})
+          douts("password sent to password server... Now waiting for a response")
+          receive do
+            {:password_is,true} -> 
+              write_line("Welcome #{username}\n",socket)
+              username
+            {:password_is,false} ->
+              write_line("Invalid Password!\nDisconnected......",socket)
+              File.close(socket)
+              Process.exit(self(),{:kill,"Invalid Password"})
+          end
+        false ->
+          write_line("Need to add functionality for adding new users\n",socket)
+          write_line("Did I get that right #{inspect username}(y/n) ? ",socket)
+          yes_or_no = String.rstrip(read_line(socket))
+          case (yes_or_no == "y") or (yes_or_no == "Y") do
+            true -> 
+              write_line("Password: ",socket)
+              password_first = String.rstrip(read_line(socket))
+              write_line("Enter Password Again: ",socket)
+              password_second = String.rstrip(read_line(socket))
+              case password_first == password_second do
+                true ->
+                  write_line("Passwords Match! Creating Account #{inspect username} / Eventually\n",socket)
+                  username
+                false -> 
+                  write_line("Passwords DO NOT MATCH!\n",socket)
+                  login(socket,password_server_id)
+              end
+            false ->
+              write_line("Ok...\nEnter the name you want to login as\n",socket)
+              login(socket,password_server_id)
+          end
       end
     false ->
       write_line("Invalid Username!\n",socket)
@@ -161,6 +189,14 @@ end
 
 defp check_username(name) do
   Regex.match?(~r/^[a-zA-Z]+$/,name)
+end
+
+defp check_username_exists(username,password_server_id) do
+  send(password_server_id,{:check_username,{self(),username}})
+  receive do
+    {:username_is,true} -> true
+    {:username_is,false} -> false
+  end
 end
 
 def read_passwords_file(file_name) do
