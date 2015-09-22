@@ -26,9 +26,10 @@ def fst({item,_}) do item end
 def snd({_,item}) do item end
 
 def start(port) do
-  password_map = read_passwords_file ".passwords"
+  password_filename = ".passwords"
+  password_map = read_passwords_file password_filename
   douts "Password file succesfully read!"
-  password_server_id = spawn(fn -> password_server(password_map) end)
+  password_server_id = spawn(fn -> password_server(password_map,password_filename) end)
   douts "Password_server successfully started!"
   {:ok,socket} = :gen_tcp.listen(port,
     [:binary,
@@ -101,7 +102,7 @@ defp broadcast(statePid) do
   broadcast(statePid)
 end
 
-defp password_server(password_map) do
+defp password_server(password_map,password_filename) do
   receive do
     {:check_username,{caller,username}} ->
       douts("password_server checking username: #{inspect username}#")
@@ -120,7 +121,7 @@ defp password_server(password_map) do
     anything_else ->
       douts("password_server received: #{inspect anything_else}")
   end
-  password_server(password_map)
+  password_server(password_map,password_filename)
 end
 
 defp loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
