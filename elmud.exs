@@ -104,6 +104,12 @@ end
 
 defp password_server(password_map,password_filename) do
   receive do
+    {:create_username,username,password} ->
+      douts "password_server is adding Username: #{inspect username} Password: #{inspect password}\n"
+      {:ok,file_handle} = File.open(password_filename,[:append])
+      IO.binwrite(file_handle,"#{username}:#{password}\n")
+      File.close(file_handle)
+      password_server(Map.put(password_map,username,password),password_filename)
     {:check_username,{caller,username}} ->
       douts("password_server checking username: #{inspect username}#")
       send(caller,{:username_is,(password_map[username] != nil)})
@@ -147,15 +153,15 @@ defp login(socket,password_server_id) do
         true ->
           write_line("Password: ",socket)
           password = String.rstrip(read_line(socket))
-          douts("Sending username: #{inspect username} and password: #{inspect password}   to password server...")
+          douts("Sending username: #{inspect username} and password: #{inspect password}   to password server...\n")
           send(password_server_id,{:check_username_password,{self(),username,password}})
-          douts("password sent to password server... Now waiting for a response")
+          douts("password sent to password server... Now waiting for a response\n")
           receive do
             {:password_is,true} -> 
               write_line("Welcome #{username}\n",socket)
               username
             {:password_is,false} ->
-              write_line("Invalid Password!\nDisconnected......",socket)
+              write_line("Invalid Password!\nDisconnected......\n",socket)
               File.close(socket)
               Process.exit(self(),{:kill,"Invalid Password"})
           end
@@ -171,7 +177,8 @@ defp login(socket,password_server_id) do
               password_second = String.rstrip(read_line(socket))
               case password_first == password_second do
                 true ->
-                  write_line("Passwords Match! Creating Account #{inspect username} / Eventually\n",socket)
+                  write_line("Passwords Match! Creating Account #{inspect username}\n",socket)
+                  send(password_server_id,{:create_username,username,password_first})
                   username
                 false -> 
                   write_line("Passwords DO NOT MATCH!\n",socket)
