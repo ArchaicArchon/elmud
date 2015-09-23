@@ -3,6 +3,8 @@ defmodule ChatServer do
 ## Version 0.0.1 of ElMUD : The MUD written in Elixir!###
 ## Now with a kv store for users!
 ## Going to add rooms!
+## Now with user accounts with passwords and creation
+## Going to add crash quick semantics to all receives and case
 
 def debug do true end
 
@@ -51,6 +53,8 @@ defp key_value_store(keys_and_values) do
       send(caller,{:key,keys_and_values[key]})
     {:set,{k,v}} ->
       key_value_store(Map.put(keys_and_values,k,v))
+    anything_else -> 
+      raise "Improper message passed to key_value_store: #{inspect anything_else}"
   end
   key_value_store(keys_and_values)
 end
@@ -67,6 +71,8 @@ defp state(socketsAndPids) do
       state(Map.put(socketsAndPids,k,v))
     {:remove,socket} ->
       state(Map.delete(socketsAndPids,socket))
+    anything_else ->
+      raise "improper message passed to state: #{inspect anything_else}"
   end
   state(socketsAndPids)
 end
@@ -79,6 +85,8 @@ defp sweeper(statePid) do
       Enum.map(fn socket -> if !Process.alive?(fst(socketsAndPids[socket])) do
         send(statePid,{:remove,socket})
         end end)
+    anything_else ->
+      raise "Improper message passed to sweeper: #{inspect anything_else}"
   end
   :timer.sleep(1000) ## sleep the sweeper for 1 second, is this too long?, to cut down on cpu cycles
   sweeper(statePid)
@@ -98,6 +106,8 @@ defp broadcast(statePid) do
         spawn(fn -> write_line((to_char_list(String.rstrip(name)) 
             ++ ': ' ++ to_char_list(msg)),
             socket) end) end)
+    anything_else ->
+      raise "Improper message passed to broadcast: #{inspect anything_else}"
   end
   broadcast(statePid)
 end
@@ -138,12 +148,13 @@ defp loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_sto
 end
 
 defp start_loop(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
-  write_line("Welcome to Elixir Chat!\n",socket)
+  write_line("Welcome to Elixir Chat\n",socket)
   name = login(socket,password_server_id)
   send(statePid,{:insert,{socket,{self(),name}}})
   loop_server(socket,broadcastPid,key_value_store_pid)
 end
 
+## Login function is kinda big and a bit messy, should break it up
 defp login(socket,password_server_id) do
   write_line("Enter your User name: ",socket)
   username = String.rstrip(read_line(socket))
@@ -158,15 +169,17 @@ defp login(socket,password_server_id) do
           douts("password sent to password server... Now waiting for a response\n")
           receive do
             {:password_is,true} -> 
-              write_line("Welcome #{username}\n",socket)
+              write_line("::WELCOME #{username}::\n",socket)
               username
             {:password_is,false} ->
               write_line("Invalid Password!\nDisconnected......\n",socket)
               File.close(socket)
               Process.exit(self(),{:kill,"Invalid Password"})
+            anything_else ->
+              raise "Improper messaged passed to login: #{inspect anything_else}"
           end
         false ->
-          write_line("Need to add functionality for adding new users\n",socket)
+          ## write_line("Need to add functionality for adding new users\n",socket)
           write_line("Did I get that right #{inspect username}(y/n) ? ",socket)
           yes_or_no = String.rstrip(read_line(socket))
           case (yes_or_no == "y") or (yes_or_no == "Y") do
@@ -204,6 +217,8 @@ defp check_username_exists(username,password_server_id) do
   receive do
     {:username_is,true} -> true
     {:username_is,false} -> false
+    anything_else ->
+      raise "Improper message passed to check_user_name_exists: #{inspect anything_else}"
   end
 end
 
@@ -249,6 +264,10 @@ defp loop_server(socket,broadcastPid,key_value_store_pid) do
           send(key_value_store_pid,{:set,{key,value}})
         false -> write_line("Invalid Key Value Pair\n",socket)
       end
+    [?e,?v,?a,?l,?\ |code_string] -> ## THIS IS EXTREMELY DANGEROUS AND INSECURE!!!!! :D
+      value = Code.eval_string code_string, [] ## DANGER
+      write_line("#{inspect value}\n",socket)     ## DANGER
+    [?p,?i,?n,?g | junk] -> write_line("PONG!",socket)
     _ -> write_line("I do not understand: #{line}",socket)
   end
   loop_server(socket,broadcastPid,key_value_store_pid)
@@ -269,4 +288,4 @@ end
 
 port = 4000
 
-spawn(fn -> ChatServer.start port end)
+spawn(fn -> ChatServer.start port end) ## uncomment this to make it autoboot
