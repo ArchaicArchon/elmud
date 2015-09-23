@@ -267,7 +267,7 @@ defp loop_server(socket,broadcastPid,key_value_store_pid) do
     [?e,?v,?a,?l,?\ |code_string] -> ## THIS IS EXTREMELY DANGEROUS AND INSECURE!!!!! :D
       value = Code.eval_string code_string, [] ## DANGER
       write_line("#{inspect value}\n",socket)     ## DANGER
-    [?p,?i,?n,?g | junk] -> write_line("PONG!",socket)
+    [?p,?i,?n,?g | junk] -> write_line("PONG!\n",socket)
     _ -> write_line("I do not understand: #{line}",socket)
   end
   loop_server(socket,broadcastPid,key_value_store_pid)
