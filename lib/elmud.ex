@@ -1,13 +1,19 @@
 defmodule Elmud do
 
+require Amnesia
+use Amnesia
+use Database
+
 ## Version 0.0.1 of ElMUD : The MUD written in Elixir!###
 ## Now with a kv store for users!
+## Soon to be with a second persistent kv store using Amnesia!
 ## Going to add rooms!
 ## Now with user accounts with passwords and creation
 ## Going to add crash quick semantics to all receives and case
 
 def debug do true end
 
+## Might just define Object struct in Database.ex
 defmodule Object do
 
 defstruct name: "Noname", title: "Notitle", description: "This object does not have a description", identifier: {:item, 0}, location: {:room, 0}, inventory: [], equipment: %{}, internal_verbs: [], external_verbs: [], internal_inventory_verbs: [], external_inventory_verbs: [], internal_equipment_verbs: [], external_equipment_verbs: []
@@ -28,6 +34,9 @@ def fst({item,_}) do item end
 def snd({_,item}) do item end
 
 def start(port) do
+  douts "Starting Amnesia...."
+  Amnesia.start
+  douts "Database is UP!"
   password_filename = ".passwords"
   password_map = read_passwords_file password_filename
   douts "Password file succesfully read!"
@@ -267,6 +276,11 @@ defp loop_server(socket,broadcastPid,key_value_store_pid) do
     [?e,?v,?a,?l,?\ |code_string] -> ## THIS IS EXTREMELY DANGEROUS AND INSECURE!!!!! :D
       value = Code.eval_string code_string, [] ## DANGER
       write_line("#{inspect value}\n",socket)     ## DANGER
+    [?b,?a,?d | junk] -> 
+      badguy = Amnesia.transaction do
+        Item.read("Badguy")
+      end
+      write_line("The current badguy is: #{inspect badguy.value}\n",socket)
     [?p,?i,?n,?g | junk] -> write_line("PONG!\n",socket)
     _ -> write_line("I do not understand: #{line}",socket)
   end
