@@ -5,11 +5,11 @@ use Amnesia
 use Database
 
 ## Version 0.0.1 of ElMUD : The MUD written in Elixir!###
-## Now with a kv store for users!
-## Soon to be with a second persistent kv store using Amnesia!
+## Now with a kv store for users! Should properly remove this at some point
+## Now with a second persistent kv store using Amnesia!
 ## Going to add rooms!
-## Now with user accounts with passwords and creation
-## Going to add crash quick semantics to all receives and case
+## Now with user accounts with passwords and user account creation
+## Addeded crash quick semantics to all receives and case, except for true, false cases
 
 def debug do true end
 
@@ -281,6 +281,25 @@ defp loop_server(socket,broadcastPid,key_value_store_pid) do
         Item.read("Badguy")
       end
       write_line("The current badguy is: #{inspect badguy.value}\n",socket)
+    [?p,?s,?e,?t,?\ |key_and_value] ->
+      key_and_value_split = String.split(to_string(key_and_value))
+      case length(key_and_value_split) == 2 do
+        true ->
+          [key,value] = key_and_value_split
+          Amnesia.transaction do
+            %Item{key: key, value: value} |> Item.write
+          end
+        false -> write_line("Invalid Key Value Pair\n", socket)
+      end
+    [?p,?g,?e,?t,?\ |key_with_white_space] ->
+      key = String.rstrip(String.lstrip(to_string(key_with_white_space)))
+      key_and_value = Amnesia.transaction do
+        Item.read key
+      end
+      case key_and_value != nil do
+        true -> write_line("#{inspect key_and_value.value}\n",socket)
+        false -> write_line("Key #{inspect key} does not exist!\n",socket)
+      end
     [?p,?i,?n,?g | junk] -> write_line("PONG!\n",socket)
     _ -> write_line("I do not understand: #{line}",socket)
   end
