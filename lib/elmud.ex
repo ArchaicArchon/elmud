@@ -175,12 +175,13 @@ defp start_loop(socket,password_server_id,statePid,broadcastPid,key_value_store_
   name = login(socket,password_server_id)
   send(statePid,{:insert,{socket,{self(),name}}})
   watchdog_pid = spawn_link(fn -> watchdog_timer(socket) end)
+  write_line("You will be disconnected after 15 minutes of inactivity!\n",socket)
   loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid)
 end
 
 ## Watchdog Timer which must be messaged every so often or it dies
 defp watchdog_timer(socket) do
-  write_line "Disconnecting in 15 minutes!\n", socket
+##  write_line "Disconnecting in 15 minutes!\n", socket
   receive do
     :reset -> watchdog_timer socket
     anything_else -> 
