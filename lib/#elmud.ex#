@@ -11,23 +11,19 @@ use Database
 ## Now with user accounts with passwords and user account creation
 ## Addeded crash quick semantics to all receives and case, except for true, false cases
 
-## set debug to true for verbose debugging and error output on server stdout, to false for almost no output on server stdout
 def debug do true end
 
 ## Might just define Object struct in Database.ex
 defmodule Object do
 
-## this could probably be mad simpler
 defstruct name: "Noname", title: "Notitle", description: "This object does not have a description", identifier: {:item, 0}, location: {:room, 0}, inventory: [], equipment: %{}, internal_verbs: [], external_verbs: [], internal_inventory_verbs: [], external_inventory_verbs: [], internal_equipment_verbs: [], external_equipment_verbs: []
 
 end
 
-## Debug Output
 defp douts(string) do
   if debug do IO.puts(string) end
 end
 
-## Debug Output but for use in a |> pipeline
 defp dpass(string) do
   if debug do IO.puts("#{inspect string}") end
   string
@@ -37,7 +33,6 @@ def fst({item,_}) do item end
 
 def snd({_,item}) do item end
 
-## Initializes everything and starts the main loop_acceptor
 def start(port) do
   douts "Starting Amnesia...."
   Amnesia.start
@@ -61,7 +56,6 @@ def start(port) do
   loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_store_pid)
 end
 
-## a ram only key value store
 defp key_value_store(keys_and_values) do
   receive do 
     {:get,caller,key} ->
@@ -74,7 +68,6 @@ defp key_value_store(keys_and_values) do
   key_value_store(keys_and_values)
 end
 
-## Handles the socket and process states
 defp state(socketsAndPids) do
   receive do
     {:get,caller} ->
@@ -93,14 +86,12 @@ defp state(socketsAndPids) do
   state(socketsAndPids)
 end
 
-## Sweeps up dead processes from state server
 defp sweeper(statePid) do
   send(statePid,{:get,self()})
   receive do
     {:state,socketsAndPids} ->
       Map.keys(socketsAndPids) |>
       Enum.map(fn socket -> if !Process.alive?(fst(socketsAndPids[socket])) do
-        :gen_tcp.close socket ## should this go here or in state?
         send(statePid,{:remove,socket})
         end end)
     anything_else ->
@@ -110,7 +101,6 @@ defp sweeper(statePid) do
   sweeper(statePid)
 end
 
-## Handles broadcasting chat messages to all people connected, could also be modified in the future for sending server wide alerts
 defp broadcast(statePid) do
   receive do
     {:broadcast,msg,socket} ->
@@ -131,8 +121,6 @@ defp broadcast(statePid) do
   broadcast(statePid)
 end
 
-
-## Password server handles, user account creation, validation and password checking
 defp password_server(password_map,password_filename) do
   receive do
     {:create_username,username,password} ->
@@ -161,7 +149,6 @@ defp password_server(password_map,password_filename) do
   password_server(password_map,password_filename)
 end
 
-## Main tcp socket loop spawns off clients and a watchdog timer
 defp loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
   {:ok,client_socket} = :gen_tcp.accept(socket) ### could error here!
   spawn(fn -> 
@@ -169,46 +156,11 @@ defp loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_sto
   loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_store_pid)
 end
 
-## Begins our client handler and spawns a watchdog timer
 defp start_loop(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
   write_line("Welcome to Elixir Chat\n",socket)
   name = login(socket,password_server_id)
   send(statePid,{:insert,{socket,{self(),name}}})
-  watchdog_pid = spawn_link(fn -> watchdog_timer(socket) end)
-  loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid)
-end
-
-## Watchdog Timer which must be messaged every so often or it dies
-defp watchdog_timer(socket) do
-  write_line "Disconnecting in 15 minutes!\n", socket
-  receive do
-    :reset -> watchdog_timer socket
-    anything_else -> 
-      raise "watchdog_timer received an incorrect message: #{inspect anything_else}"
-    after 5*60*1000  -> write_line "Disconnecting in 10 minutes!\n", socket
-  end
-  watchdog_timer2 socket 
-end
-
-defp watchdog_timer2(socket) do
-  receive do
-    :reset -> watchdog_timer socket
-    anything_else ->
-      raise "watchdog_timer2 received and incorrect message: #{inspect anything_else}"
-    after 5*60*1000 -> write_line "Disconnecting in 5 minutes\n", socket
-  end
-  watchdog_timer3 socket
-end
-
-defp watchdog_timer3(socket) do
-  receive do
-    :reset -> watchdog_timer socket
-    anything_else ->
-      raise "watchdog_timer3 received and incorrect message: #{inspect anything_else}"
-    after 5*60*1000 -> write_line "Disconnected Due to 15 minutes of Inactivity!!!\n", socket 
-  end
-  :gen_tcp.close socket
-  Process.exit self(), {:kill,"#{inspect socket} is going to be disconnected because of inactivity within 1 second!"}
+  loop_server(socket,broadcastPid,key_value_store_pid)
 end
 
 ## Login function is kinda big and a bit messy, should break it up
@@ -301,10 +253,8 @@ def password_line_parse(line) do
   {k,v}
 end
 
-## The Main Client loops, handles reading and dispatching things users type in
-defp loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid) do
+defp loop_server(socket,broadcastPid,key_value_store_pid) do
   line = String.to_char_list(read_line socket)
-  send watchdog_pid, :reset
   case line do
     [?c,?h,?a,?t,?\ |chat_message] ->
       send(broadcastPid,{:broadcast,chat_message,socket})
@@ -354,23 +304,20 @@ defp loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid) do
     [?d,?i,?n,?g | junk] -> write_line("DING!\a\n",socket)
     _ -> write_line("I do not understand: #{line}",socket)
   end
-  loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid)
+  loop_server(socket,broadcastPid,key_value_store_pid)
 end
 
-## Reads a line from a socket
 defp read_line(socket) do
   {:ok, data} = :gen_tcp.recv(socket,0)
   douts "Read in data: #{inspect data} : from #{inspect socket}"
   data
 end
 
-## Writes a line to a socket
 defp write_line(line,socket) do
   douts("trying to write: #{line} to #{inspect socket}")
   :gen_tcp.send(socket,line)
 end
 
-## Main function for the MudServer Application!
 def main(args) do
   Elmud.start 4000
 end
