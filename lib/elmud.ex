@@ -106,7 +106,7 @@ defp sweeper(statePid) do
   receive do
     {:state,socketsAndPids} ->
       Map.keys(socketsAndPids) |>
-      Enum.map(fn socket -> if !Process.alive?(socketsAndPids[socket].name) do
+      Enum.map(fn socket -> if !Process.alive?(socketsAndPids[socket].pid) do
         :gen_tcp.close socket ## should this go here or in state?
         send(statePid,{:remove,socket})
         end end)
@@ -177,13 +177,13 @@ defp loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_sto
 end
 
 ## Begins our client handler and spawns a watchdog timer
-defp start_loop(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
+defp start_loop(socket,password_server_id,state_pid,broadcast_pid,key_value_store_pid) do
   write_line("Welcome to Elixir Chat\n",socket)
   name = login(socket,password_server_id)
-  send(statePid,{:insert,{socket,%State_Value{pid: self(), name: name}}}) ## {self(),name}}})
+  send(state_pid,{:insert,{socket,%State_Value{pid: self(), name: name}}}) ## {self(),name}}})
   watchdog_pid = spawn_link(fn -> watchdog_timer(socket) end)
   write_line("You will be disconnected after 15 minutes of inactivity!\n",socket)
-  loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid)
+  loop_server(socket,state_pid,broadcast_pid,key_value_store_pid,watchdog_pid)
 end
 
 ## Watchdog Timer which must be messaged every so often or it dies
@@ -310,7 +310,7 @@ def password_line_parse(line) do
 end
 
 ## The Main Client loops, handles reading and dispatching things users type in
-defp loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid) do
+defp loop_server(socket,state_pid,broadcastPid,key_value_store_pid,watchdog_pid) do
   line = String.to_char_list(read_line socket)
   send watchdog_pid, :reset
   case line do
@@ -358,11 +358,26 @@ defp loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid) do
         true -> write_line("#{inspect key_and_value.value}\n",socket)
         false -> write_line("Key #{inspect key} does not exist!\n",socket)
       end
+    [?w,?h,?o | junk] -> 
+      write_line("These people are currently logged in:\n", socket)
+      send state_pid, {:get,self()}
+      receive do
+        {:state,sockets_and_pids} -> 
+          douts "who command in function loop_server has received sockets_and_pids: #{inspect sockets_and_pids}"
+          Map.keys(sockets_and_pids) |>
+          dpass |>
+          Enum.map(fn key ->
+            douts "Name we are trying to write out is: #{inspect sockets_and_pids[key].name}\n"
+            write_line("  #{sockets_and_pids[key].name}\n", socket)
+          end)
+        anything_else ->
+          raise "loop_server received an invalid message in who: #{inspect anything_else}"
+      end
     [?p,?i,?n,?g | junk] -> write_line("PONG!\n",socket)
     [?d,?i,?n,?g | junk] -> write_line("DING!\a\n",socket)
     _ -> write_line("I do not understand: #{line}",socket)
   end
-  loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid)
+  loop_server(socket,state_pid,broadcastPid,key_value_store_pid,watchdog_pid)
 end
 
 ## Reads a line from a socket
