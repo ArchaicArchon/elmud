@@ -168,7 +168,7 @@ defp password_server(password_map,password_filename) do
   password_server(password_map,password_filename)
 end
 
-## Main tcp socket loop spawns off clients and a watchdog timer
+## Main tcp socket loop spawns off clients
 defp loop_acceptor(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
   {:ok,client_socket} = :gen_tcp.accept(socket) ### could error here!
   spawn(fn -> 
