@@ -22,6 +22,13 @@ defstruct name: "Noname", title: "Notitle", description: "This object does not h
 
 end
 
+## socket lookups a State_value
+defmodule State_Value do
+
+  defstruct pid: 0, name: ""
+
+end
+
 ## Debug Output
 defp douts(string) do
   if debug do IO.puts(string) end
@@ -82,7 +89,7 @@ defp state(socketsAndPids) do
     {:get_extra,caller,msg,socket} ->
       send(caller,
         {:state_with_msg_and_name,socketsAndPids,msg,
-            (socketsAndPids[socket] |> snd)})
+            (socketsAndPids[socket].name)})
     {:insert,{k,v}} ->
       state(Map.put(socketsAndPids,k,v))
     {:remove,socket} ->
@@ -99,7 +106,7 @@ defp sweeper(statePid) do
   receive do
     {:state,socketsAndPids} ->
       Map.keys(socketsAndPids) |>
-      Enum.map(fn socket -> if !Process.alive?(fst(socketsAndPids[socket])) do
+      Enum.map(fn socket -> if !Process.alive?(socketsAndPids[socket].name) do
         :gen_tcp.close socket ## should this go here or in state?
         send(statePid,{:remove,socket})
         end end)
@@ -173,7 +180,7 @@ end
 defp start_loop(socket,password_server_id,statePid,broadcastPid,key_value_store_pid) do
   write_line("Welcome to Elixir Chat\n",socket)
   name = login(socket,password_server_id)
-  send(statePid,{:insert,{socket,{self(),name}}})
+  send(statePid,{:insert,{socket,%State_Value{pid: self(), name: name}}}) ## {self(),name}}})
   watchdog_pid = spawn_link(fn -> watchdog_timer(socket) end)
   write_line("You will be disconnected after 15 minutes of inactivity!\n",socket)
   loop_server(socket,broadcastPid,key_value_store_pid,watchdog_pid)
