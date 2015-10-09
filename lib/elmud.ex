@@ -1,5 +1,7 @@
 defmodule Elmud do
 
+require Dye
+use Dye, func: true
 require Amnesia
 use Amnesia
 use Database
@@ -87,9 +89,7 @@ defp state(socketsAndPids) do
     {:get,caller} ->
       send(caller,{:state,socketsAndPids})
     {:get_extra,caller,msg,socket} ->
-      send(caller,
-        {:state_with_msg_and_name,socketsAndPids,msg,
-            (socketsAndPids[socket].name)})
+      send caller, {:state_with_msg, socketsAndPids,msg}
     {:insert,{k,v}} ->
       state(Map.put(socketsAndPids,k,v))
     {:remove,socket} ->
@@ -123,15 +123,14 @@ defp broadcast(statePid) do
     {:broadcast,msg,socket} ->
       douts("got a msg: #{inspect msg} from: #{inspect socket}")
       send(statePid,{:get_extra,self(),msg,socket})
-    {:state_with_msg_and_name,socketsAndPids,msg,name} ->
-      douts("oh here is my state in broadcast: #{inspect socketsAndPids}")
-      Map.keys(socketsAndPids) |> 
+    {:state_with_msg,sockets_and_pids,msg} ->
+      douts("oh here is my state in broadcast: #{inspect sockets_and_pids}")
+      Map.keys(sockets_and_pids) |> 
       dpass |>
-      Enum.map(fn socket -> 
-        douts("here is my msg and socket and name: #{inspect msg} : #{inspect socket} : #{inspect name}")
-        spawn(fn -> write_line((to_char_list(String.rstrip(name)) 
-            ++ ': \a' ++ to_char_list(msg)),
-            socket) end) end)
+      Enum.map(fn key_socket -> 
+        douts("here is my msg and socket: #{inspect msg} : #{inspect key_socket}")
+        spawn(fn -> write_line msg, key_socket end) 
+	end)
     anything_else ->
       raise "Improper message passed to broadcast: #{inspect anything_else}"
   end
@@ -183,7 +182,7 @@ defp start_loop(socket,password_server_id,state_pid,broadcast_pid,key_value_stor
   send(state_pid,{:insert,{socket,%State_Value{pid: self(), name: name}}}) ## {self(),name}}})
   watchdog_pid = spawn_link(fn -> watchdog_timer(socket) end)
   write_line("You will be disconnected after 15 minutes of inactivity!\n",socket)
-  loop_server(socket,state_pid,broadcast_pid,key_value_store_pid,watchdog_pid)
+  loop_server(socket,name,state_pid,broadcast_pid,key_value_store_pid,watchdog_pid)
 end
 
 ## Watchdog Timer which must be messaged every so often or it dies
@@ -309,13 +308,29 @@ def password_line_parse(line) do
   {k,v}
 end
 
+## get_name_color looks up a name and a returns a valid color for it
+defp get_name_color(name) do
+  douts "looking up #{inspect name} in Color Databse\n"
+  name_and_color = Amnesia.transaction do
+    Color.read name
+  end
+  douts "The lookup has returned #{inspect name_and_color}\n"
+  case name_and_color do
+    :badarg -> 'w'
+    :nil -> 'w'
+    valid_lookup -> valid_lookup.color
+  end
+end
+
 ## The Main Client loops, handles reading and dispatching things users type in
-defp loop_server(socket,state_pid,broadcastPid,key_value_store_pid,watchdog_pid) do
+defp loop_server(socket,name,state_pid,broadcastPid,key_value_store_pid,watchdog_pid) do
   line = String.to_char_list(read_line socket)
   send watchdog_pid, :reset
   case line do
     [?c,?h,?a,?t,?\ |chat_message] ->
-      send(broadcastPid,{:broadcast,chat_message,socket})
+      mods = get_name_color name
+      colorful_name_with_colon = sigil_S(<<"#{name}:">>, mods)
+      send(broadcastPid, {:broadcast,"#{colorful_name_with_colon} #{chat_message}", socket})
     [?g,?e,?t,?\ |key_with_white_space] ->
       key = String.rstrip(String.lstrip(to_string(key_with_white_space)))
       send(key_value_store_pid,{:get,self(),key})
@@ -358,6 +373,17 @@ defp loop_server(socket,state_pid,broadcastPid,key_value_store_pid,watchdog_pid)
         true -> write_line("#{inspect key_and_value.value}\n",socket)
         false -> write_line("Key #{inspect key} does not exist!\n",socket)
       end
+    [?c,?o,?l,?o,?r,?\ |color_to_lookup_with_white_space] ->
+       color_to_lookup = String.rstrip(String.lstrip(to_string(color_to_lookup_with_white_space)))
+       color_mod = %{"white" => 'w', "red" => 'r', "green" => 'g', "blue" => 'b', "cyan" => 'c', "magenta" => 'm', "yellow" => 'y'}[color_to_lookup]
+       case color_mod != nil do
+         true -> 
+           Amnesia.transaction do
+             %Color{name: name, color: color_mod} |> Color.write
+           end
+         false ->
+           write_line "#{inspect color_to_lookup} is an invalid color!\n", socket
+       end
     [?w,?h,?o | junk] -> 
       write_line("These people are currently logged in:\n", socket)
       send state_pid, {:get,self()}
@@ -377,7 +403,7 @@ defp loop_server(socket,state_pid,broadcastPid,key_value_store_pid,watchdog_pid)
     [?d,?i,?n,?g | junk] -> write_line("DING!\a\n",socket)
     _ -> write_line("I do not understand: #{line}",socket)
   end
-  loop_server(socket,state_pid,broadcastPid,key_value_store_pid,watchdog_pid)
+  loop_server(socket,name,state_pid,broadcastPid,key_value_store_pid,watchdog_pid)
 end
 
 ## Reads a line from a socket
