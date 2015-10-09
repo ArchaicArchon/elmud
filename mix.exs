@@ -28,6 +28,7 @@ defmodule Elmud.Mixfile do
   #
   # Type `mix help deps` for more examples and options
   defp deps do
-    [{:amnesia, github: "meh/amnesia", tag: :master}]
+    [{:amnesia, github: "meh/amnesia", tag: :master},
+     {:dye,     github: "Kabie/dye",   tag: :master}]
   end
 end
